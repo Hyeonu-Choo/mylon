@@ -10,7 +10,6 @@
 <body>
 
   <header>🎵 Mylon</header>
-  
 
   <!-- 상단 탭 네비게이션 -->
   <div class="tab-nav">
@@ -44,19 +43,21 @@
     <div id="playlistDetailTab" class="tab-content" style="display:none;">
       <button class="back-btn" onclick="closePlaylistDetail()">⬅️ 목록으로 돌아가기</button>
       <h2 id="detailPlaylistTitle">플레이리스트</h2>
-      <button id="playAllPlaylistBtn" style="margin-bottom: 12px; width:100%; padding: 10px; background: var(--accent-color); color:white; border:none; border-radius:8px; font-weight:600; cursor:pointer;">▶️ 전체 재생</button>
+      <button id="playAllPlaylistBtn" style="margin-bottom: 12px; width:100%; padding: 12px; background: var(--accent-color); color:white; border:none; border-radius:8px; font-weight:600; cursor:pointer;">▶️ 전체 재생</button>
       <div id="detailSongList"></div>
     </div>
   </div>
 
   <!-- 하단 재생 컨트롤 바 -->
   <div class="player-bar" id="playerBar" style="display: none;">
-    <div style="font-size: 14px; font-weight: 600;" id="nowPlayingTitle">재생 중인 곡 없음</div>
+    <div style="font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" id="nowPlayingTitle">재생 중인 곡 없음</div>
     <input type="range" id="progressBar" value="0" min="0" max="100" style="width: 100%;">
     <div class="player-controls">
-      <button id="prevBtn">⏮️</button>
-      <button id="playPauseBtn">▶️</button>
-      <button id="nextBtn">⏭️</button>
+      <button id="shuffleBtn" class="mode-btn" title="셔플">🔀</button>
+      <button id="prevBtn" title="이전 곡">⏮️</button>
+      <button id="playPauseBtn" style="font-size: 26px;" title="재생/일시정지">▶️</button>
+      <button id="nextBtn" title="다음 곡">⏭️</button>
+      <button id="repeatBtn" class="mode-btn active-mode" title="반복 모드">🔁</button>
     </div>
   </div>
 

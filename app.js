@@ -8,13 +8,21 @@ const nowPlayingTitle = document.getElementById('nowPlayingTitle');
 const playPauseBtn = document.getElementById('playPauseBtn');
 const prevBtn = document.getElementById('prevBtn');
 const nextBtn = document.getElementById('nextBtn');
+const shuffleBtn = document.getElementById('shuffleBtn');
+const repeatBtn = document.getElementById('repeatBtn');
 const progressBar = document.getElementById('progressBar');
 
 let songs = JSON.parse(localStorage.getItem('runbeat_songs')) || [];
 let playlists = JSON.parse(localStorage.getItem('runbeat_playlists')) || [];
-let currentQueue = [];
+
+let originalQueue = []; // 원래 순서 큐
+let currentQueue = [];  // 실제 재생 큐 (셔플 적용 시 섞임)
 let currentIndex = 0;
 let activePlaylistId = null;
+
+// 재생 옵션 상태
+let isShuffle = false;
+let repeatMode = 'all'; // 'all' (전체 반복), 'one' (한 곡 반복), 'off' (반복 끔)
 
 // 서비스 워커 등록
 if ('serviceWorker' in navigator) {
@@ -83,7 +91,7 @@ function renderSongList() {
   });
 }
 
-// 플레이리스트 생성 버튼 이벤트
+// 플레이리스트 생성
 document.getElementById('createPlaylistBtn').addEventListener('click', () => {
   const input = document.getElementById('playlistNameInput');
   const name = input.value.trim();
@@ -129,7 +137,6 @@ function deletePlaylist(plId) {
   renderPlaylists();
 }
 
-// 플레이리스트에 곡 추가 다이얼로그 (간단 prompt 활용)
 function openAddToPlaylistModal(songId) {
   if (playlists.length === 0) {
     alert("먼저 '플레이리스트' 탭에서 플레이리스트를 생성해주세요!");
@@ -157,7 +164,6 @@ function openAddToPlaylistModal(songId) {
   }
 }
 
-// 플레이리스트 상세 화면 열기
 function openPlaylistDetail(plId) {
   activePlaylistId = plId;
   const pl = playlists.find(p => p.id === plId);
@@ -170,7 +176,7 @@ function openPlaylistDetail(plId) {
   
   document.getElementById('detailPlaylistTitle').textContent = pl.name;
 
-  const plSongs = songs.filter(s => pl.songIds.includes(s.id));
+  const plSongs = getPlaylistSongs(plId);
   detailSongListEl.innerHTML = '';
   
   if (plSongs.length === 0) {
@@ -209,7 +215,9 @@ document.getElementById('playAllPlaylistBtn').addEventListener('click', () => {
   if (!activePlaylistId) return;
   const plSongs = getPlaylistSongs(activePlaylistId);
   if (plSongs.length > 0) {
-    playQueue(0, plSongs);
+    // 셔플이 켜져 있으면 무작위 첫 곡부터 시작
+    const startIndex = isShuffle ? Math.floor(Math.random() * plSongs.length) : 0;
+    playQueue(startIndex, plSongs);
   }
 });
 
@@ -222,12 +230,66 @@ function removeSongFromPlaylist(plId, songId) {
   }
 }
 
-// 오디오 재생 큐 관리
+// 배열 셔플 유틸리티 (현재 재생 곡을 맨 앞에 고정하고 나머지 섞기)
+function createShuffledQueue(list, firstSong) {
+  const others = list.filter(s => s.id !== firstSong.id);
+  for (let i = others.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [others[i], others[j]] = [others[j], others[i]];
+  }
+  return [firstSong, ...others];
+}
+
+// 오디오 재생 큐 시작
 function playQueue(index, queueArray) {
-  currentQueue = queueArray;
-  currentIndex = index;
+  if (!queueArray || queueArray.length === 0) return;
+  originalQueue = [...queueArray];
+  const selectedSong = originalQueue[index];
+
+  if (isShuffle) {
+    currentQueue = createShuffledQueue(originalQueue, selectedSong);
+    currentIndex = 0;
+  } else {
+    currentQueue = [...originalQueue];
+    currentIndex = index;
+  }
   playCurrentSong();
 }
+
+// 셔플 버튼 토글
+shuffleBtn.addEventListener('click', () => {
+  isShuffle = !isShuffle;
+  shuffleBtn.classList.toggle('active-mode', isShuffle);
+
+  if (currentQueue.length > 0) {
+    const currentSong = currentQueue[currentIndex];
+    if (isShuffle) {
+      currentQueue = createShuffledQueue(originalQueue, currentSong);
+      currentIndex = 0;
+    } else {
+      currentQueue = [...originalQueue];
+      currentIndex = currentQueue.findIndex(s => s.id === currentSong.id);
+      if (currentIndex === -1) currentIndex = 0;
+    }
+  }
+});
+
+// 반복 모드 순환 (전체 반복 -> 한 곡 반복 -> 반복 끔)
+repeatBtn.addEventListener('click', () => {
+  if (repeatMode === 'all') {
+    repeatMode = 'one';
+    repeatBtn.textContent = '🔂';
+    repeatBtn.classList.add('active-mode');
+  } else if (repeatMode === 'one') {
+    repeatMode = 'off';
+    repeatBtn.textContent = '🔁';
+    repeatBtn.classList.remove('active-mode');
+  } else {
+    repeatMode = 'all';
+    repeatBtn.textContent = '🔁';
+    repeatBtn.classList.add('active-mode');
+  }
+});
 
 function playCurrentSong() {
   if (currentQueue.length === 0) return;
@@ -241,11 +303,11 @@ function playCurrentSong() {
 
   // 잠금화면 및 에어팟 리모트 제어 연동 (Media Session API)
   if ('mediaSession' in navigator) {
-  navigator.mediaSession.metadata = new MediaMetadata({
-    title: song.title,
-    artist: song.artist,
-    album: 'Mylon Offline Playlist' // 수정된 부분
-   });
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: song.title,
+      artist: song.artist,
+      album: 'Mylon Offline Playlist'
+    });
 
     navigator.mediaSession.setActionHandler('play', () => { audioElement.play(); playPauseBtn.textContent = '⏸️'; });
     navigator.mediaSession.setActionHandler('pause', () => { audioElement.pause(); playPauseBtn.textContent = '▶️'; });
@@ -264,19 +326,45 @@ playPauseBtn.addEventListener('click', () => {
   }
 });
 
-function playNext() {
+function playNext(isAutoEnded = false) {
   if (currentQueue.length === 0) return;
-  currentIndex = (currentIndex + 1) % currentQueue.length;
-  playCurrentSong();
+
+  // 곡이 자연 종료되었고 '한 곡 반복' 모드일 때
+  if (isAutoEnded && repeatMode === 'one') {
+    audioElement.currentTime = 0;
+    audioElement.play();
+    return;
+  }
+
+  if (currentIndex + 1 < currentQueue.length) {
+    currentIndex++;
+    playCurrentSong();
+  } else {
+    // 마지막 곡에 도달했을 때
+    if (repeatMode === 'all' || !isAutoEnded) {
+      currentIndex = 0;
+      playCurrentSong();
+    } else {
+      // '반복 끔' 모드에서 마지막 곡이 끝난 경우 정지
+      audioElement.pause();
+      audioElement.currentTime = 0;
+      playPauseBtn.textContent = '▶️';
+    }
+  }
 }
 
 function playPrev() {
   if (currentQueue.length === 0) return;
+  // 3초 이상 재생되었으면 현재 곡 처음으로 되감기
+  if (audioElement.currentTime > 3) {
+    audioElement.currentTime = 0;
+    return;
+  }
   currentIndex = (currentIndex - 1 + currentQueue.length) % currentQueue.length;
   playCurrentSong();
 }
 
-nextBtn.addEventListener('click', playNext);
+nextBtn.addEventListener('click', () => playNext(false));
 prevBtn.addEventListener('click', playPrev);
 
 audioElement.addEventListener('timeupdate', () => {
@@ -285,7 +373,7 @@ audioElement.addEventListener('timeupdate', () => {
   }
 });
 
-audioElement.addEventListener('ended', playNext);
+audioElement.addEventListener('ended', () => playNext(true));
 
 progressBar.addEventListener('input', (e) => {
   if (audioElement.duration) {
