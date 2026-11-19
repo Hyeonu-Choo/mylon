@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mylon-cache-v2';
+const CACHE_NAME = 'mylon-cache-v3';
 const assetsToCache = [
   './index.html',
   './style.css',
@@ -7,9 +7,20 @@ const assetsToCache = [
 ];
 
 self.addEventListener('install', (event) => {
+  self.skipWaiting(); // 새 서비스 워커 즉시 활성화
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(assetsToCache);
+    })
+  );
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((keys) => {
+      return Promise.all(
+        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
+      );
     })
   );
 });

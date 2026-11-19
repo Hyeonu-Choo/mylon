@@ -12,21 +12,101 @@ const shuffleBtn = document.getElementById('shuffleBtn');
 const repeatBtn = document.getElementById('repeatBtn');
 const progressBar = document.getElementById('progressBar');
 
-let songs = JSON.parse(localStorage.getItem('runbeat_songs')) || [];
+let songs = [];
 let playlists = JSON.parse(localStorage.getItem('runbeat_playlists')) || [];
 
 let originalQueue = [];
 let currentQueue = [];
 let currentIndex = 0;
 let activePlaylistId = null;
+let currentBlobUrl = null; // 메모리 누수 방지용 현재 재생 URL 추적
 
 let isShuffle = false;
 let repeatMode = 'all';
 
+// 서비스 워커 등록
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js');
 }
 
+// ==========================================
+// 1. IndexedDB 설정 (오디오 파일 영구 저장소)
+// ==========================================
+const DB_NAME = 'MylonAudioDB';
+const DB_VERSION = 1;
+const STORE_NAME = 'songs';
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function saveSongToDB(songObj) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    tx.objectStore(STORE_NAME).put(songObj);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function loadSongsFromDB() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readonly');
+    const request = tx.objectStore(STORE_NAME).getAll();
+    request.onsuccess = () => resolve(request.result || []);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+// 초기화: DB에서 영구 저장된 곡 불러오기
+async function initApp() {
+  // 기존 만료된 localStorage 잔여 데이터 정리
+  localStorage.removeItem('runbeat_songs');
+  songs = await loadSongsFromDB();
+  renderSongList();
+}
+
+// ==========================================
+// 2. 파일 업로드 및 영구 저장 처리
+// ==========================================
+audioFileInput.addEventListener('change', async (e) => {
+  const files = e.target.files;
+  if (!files || files.length === 0) return;
+
+  for (let file of files) {
+    const newSong = {
+      id: 'song_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+      title: file.name.replace(/\.[^/.]+$/, ""),
+      artist: "Offline Audio",
+      fileBlob: file // 실제 오디오 바이너리 데이터 영구 저장
+    };
+    await saveSongToDB(newSong);
+    songs.push(newSong);
+  }
+  
+  audioFileInput.value = ''; // 동일 파일 재선택 가능하도록 초기화
+  renderSongList();
+});
+
+function savePlaylists() {
+  localStorage.setItem('runbeat_playlists', JSON.stringify(playlists));
+}
+
+// ==========================================
+// 3. UI 렌더링 및 탭 전환
+// ==========================================
 function switchTab(tabName) {
   document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
@@ -41,27 +121,6 @@ function switchTab(tabName) {
     document.getElementById('playlistDetailTab').style.display = 'none';
     renderPlaylists();
   }
-}
-
-audioFileInput.addEventListener('change', (e) => {
-  const files = e.target.files;
-  for (let file of files) {
-    const songURL = URL.createObjectURL(file);
-    const newSong = {
-      id: 'song_' + Date.now() + Math.random(),
-      title: file.name.replace(/\.[^/.]+$/, ""),
-      artist: "Local Storage",
-      url: songURL
-    };
-    songs.push(newSong);
-  }
-  saveData();
-  renderSongList();
-});
-
-function saveData() {
-  localStorage.setItem('runbeat_songs', JSON.stringify(songs));
-  localStorage.setItem('runbeat_playlists', JSON.stringify(playlists));
 }
 
 function renderSongList() {
@@ -97,7 +156,7 @@ document.getElementById('createPlaylistBtn').addEventListener('click', () => {
     songIds: []
   };
   playlists.push(newPlaylist);
-  saveData();
+  savePlaylists();
   input.value = '';
   renderPlaylists();
 });
@@ -126,7 +185,7 @@ function renderPlaylists() {
 
 function deletePlaylist(plId) {
   playlists = playlists.filter(p => p.id !== plId);
-  saveData();
+  savePlaylists();
   renderPlaylists();
 }
 
@@ -147,7 +206,7 @@ function openAddToPlaylistModal(songId) {
   if (playlists[index]) {
     if (!playlists[index].songIds.includes(songId)) {
       playlists[index].songIds.push(songId);
-      saveData();
+      savePlaylists();
       alert(`'${playlists[index].name}' 플레이리스트에 추가되었습니다!`);
     } else {
       alert("이미 해당 플레이리스트에 포함된 곡입니다.");
@@ -217,11 +276,14 @@ function removeSongFromPlaylist(plId, songId) {
   const pl = playlists.find(p => p.id === plId);
   if (pl) {
     pl.songIds = pl.songIds.filter(id => id !== songId);
-    saveData();
+    savePlaylists();
     openPlaylistDetail(plId);
   }
 }
 
+// ==========================================
+// 4. 재생 큐 및 안정화된 오디오 엔진
+// ==========================================
 function createShuffledQueue(list, firstSong) {
   const others = list.filter(s => s.id !== firstSong.id);
   for (let i = others.length - 1; i > 0; i--) {
@@ -282,12 +344,33 @@ repeatBtn.addEventListener('click', () => {
 function playCurrentSong() {
   if (currentQueue.length === 0) return;
   const song = currentQueue[currentIndex];
-  
-  audioElement.src = song.url;
-  audioElement.play();
+  if (!song || !song.fileBlob) return;
+
+  // 이전 곡의 임시 URL 메모리 해제 후 새로 생성 (재재생 불가 버그 원천 차단)
+  if (currentBlobUrl) {
+    URL.revokeObjectURL(currentBlobUrl);
+  }
+  currentBlobUrl = URL.createObjectURL(song.fileBlob);
+
+  audioElement.pause();
+  audioElement.src = currentBlobUrl;
+  audioElement.currentTime = 0;
+  audioElement.load(); // iOS Safari 오디오 버퍼 강제 초기화
+
+  const playPromise = audioElement.play();
+  if (playPromise !== undefined) {
+    playPromise
+      .then(() => {
+        playPauseBtn.textContent = '⏸️';
+      })
+      .catch((err) => {
+        console.warn('재생 대기 또는 차단됨:', err);
+        playPauseBtn.textContent = '▶️';
+      });
+  }
+
   playerBar.style.display = 'flex';
   nowPlayingTitle.textContent = song.title;
-  playPauseBtn.textContent = '⏸️';
 
   if ('mediaSession' in navigator) {
     navigator.mediaSession.metadata = new MediaMetadata({
@@ -299,11 +382,12 @@ function playCurrentSong() {
     navigator.mediaSession.setActionHandler('play', () => { audioElement.play(); playPauseBtn.textContent = '⏸️'; });
     navigator.mediaSession.setActionHandler('pause', () => { audioElement.pause(); playPauseBtn.textContent = '▶️'; });
     navigator.mediaSession.setActionHandler('previoustrack', playPrev);
-    navigator.mediaSession.setActionHandler('nexttrack', playNext);
+    navigator.mediaSession.setActionHandler('nexttrack', () => playNext(false));
   }
 }
 
 playPauseBtn.addEventListener('click', () => {
+  if (!audioElement.src) return;
   if (audioElement.paused) {
     audioElement.play();
     playPauseBtn.textContent = '⏸️';
@@ -351,7 +435,7 @@ nextBtn.addEventListener('click', () => playNext(false));
 prevBtn.addEventListener('click', playPrev);
 
 audioElement.addEventListener('timeupdate', () => {
-  if (audioElement.duration) {
+  if (audioElement.duration && !isNaN(audioElement.duration)) {
     progressBar.value = (audioElement.currentTime / audioElement.duration) * 100;
   }
 });
@@ -359,9 +443,10 @@ audioElement.addEventListener('timeupdate', () => {
 audioElement.addEventListener('ended', () => playNext(true));
 
 progressBar.addEventListener('input', (e) => {
-  if (audioElement.duration) {
+  if (audioElement.duration && !isNaN(audioElement.duration)) {
     audioElement.currentTime = (e.target.value / 100) * audioElement.duration;
   }
 });
 
-renderSongList();
+// 앱 시작
+initApp();
