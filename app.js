@@ -15,21 +15,18 @@ const progressBar = document.getElementById('progressBar');
 let songs = JSON.parse(localStorage.getItem('runbeat_songs')) || [];
 let playlists = JSON.parse(localStorage.getItem('runbeat_playlists')) || [];
 
-let originalQueue = []; // 원래 순서 큐
-let currentQueue = [];  // 실제 재생 큐 (셔플 적용 시 섞임)
+let originalQueue = [];
+let currentQueue = [];
 let currentIndex = 0;
 let activePlaylistId = null;
 
-// 재생 옵션 상태
 let isShuffle = false;
-let repeatMode = 'all'; // 'all' (전체 반복), 'one' (한 곡 반복), 'off' (반복 끔)
+let repeatMode = 'all';
 
-// 서비스 워커 등록
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js');
 }
 
-// 탭 전환 함수
 function switchTab(tabName) {
   document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
@@ -46,7 +43,6 @@ function switchTab(tabName) {
   }
 }
 
-// 파일 업로드 처리
 audioFileInput.addEventListener('change', (e) => {
   const files = e.target.files;
   for (let file of files) {
@@ -68,7 +64,6 @@ function saveData() {
   localStorage.setItem('runbeat_playlists', JSON.stringify(playlists));
 }
 
-// 전체 곡 목록 렌더링
 function renderSongList() {
   songListEl.innerHTML = '';
   if (songs.length === 0) {
@@ -91,7 +86,6 @@ function renderSongList() {
   });
 }
 
-// 플레이리스트 생성
 document.getElementById('createPlaylistBtn').addEventListener('click', () => {
   const input = document.getElementById('playlistNameInput');
   const name = input.value.trim();
@@ -108,7 +102,6 @@ document.getElementById('createPlaylistBtn').addEventListener('click', () => {
   renderPlaylists();
 });
 
-// 플레이리스트 목록 렌더링
 function renderPlaylists() {
   playlistListEl.innerHTML = '';
   if (playlists.length === 0) {
@@ -215,7 +208,6 @@ document.getElementById('playAllPlaylistBtn').addEventListener('click', () => {
   if (!activePlaylistId) return;
   const plSongs = getPlaylistSongs(activePlaylistId);
   if (plSongs.length > 0) {
-    // 셔플이 켜져 있으면 무작위 첫 곡부터 시작
     const startIndex = isShuffle ? Math.floor(Math.random() * plSongs.length) : 0;
     playQueue(startIndex, plSongs);
   }
@@ -230,7 +222,6 @@ function removeSongFromPlaylist(plId, songId) {
   }
 }
 
-// 배열 셔플 유틸리티 (현재 재생 곡을 맨 앞에 고정하고 나머지 섞기)
 function createShuffledQueue(list, firstSong) {
   const others = list.filter(s => s.id !== firstSong.id);
   for (let i = others.length - 1; i > 0; i--) {
@@ -240,7 +231,6 @@ function createShuffledQueue(list, firstSong) {
   return [firstSong, ...others];
 }
 
-// 오디오 재생 큐 시작
 function playQueue(index, queueArray) {
   if (!queueArray || queueArray.length === 0) return;
   originalQueue = [...queueArray];
@@ -256,7 +246,6 @@ function playQueue(index, queueArray) {
   playCurrentSong();
 }
 
-// 셔플 버튼 토글
 shuffleBtn.addEventListener('click', () => {
   isShuffle = !isShuffle;
   shuffleBtn.classList.toggle('active-mode', isShuffle);
@@ -274,7 +263,6 @@ shuffleBtn.addEventListener('click', () => {
   }
 });
 
-// 반복 모드 순환 (전체 반복 -> 한 곡 반복 -> 반복 끔)
 repeatBtn.addEventListener('click', () => {
   if (repeatMode === 'all') {
     repeatMode = 'one';
@@ -301,7 +289,6 @@ function playCurrentSong() {
   nowPlayingTitle.textContent = song.title;
   playPauseBtn.textContent = '⏸️';
 
-  // 잠금화면 및 에어팟 리모트 제어 연동 (Media Session API)
   if ('mediaSession' in navigator) {
     navigator.mediaSession.metadata = new MediaMetadata({
       title: song.title,
@@ -329,7 +316,6 @@ playPauseBtn.addEventListener('click', () => {
 function playNext(isAutoEnded = false) {
   if (currentQueue.length === 0) return;
 
-  // 곡이 자연 종료되었고 '한 곡 반복' 모드일 때
   if (isAutoEnded && repeatMode === 'one') {
     audioElement.currentTime = 0;
     audioElement.play();
@@ -340,12 +326,10 @@ function playNext(isAutoEnded = false) {
     currentIndex++;
     playCurrentSong();
   } else {
-    // 마지막 곡에 도달했을 때
     if (repeatMode === 'all' || !isAutoEnded) {
       currentIndex = 0;
       playCurrentSong();
     } else {
-      // '반복 끔' 모드에서 마지막 곡이 끝난 경우 정지
       audioElement.pause();
       audioElement.currentTime = 0;
       playPauseBtn.textContent = '▶️';
@@ -355,7 +339,6 @@ function playNext(isAutoEnded = false) {
 
 function playPrev() {
   if (currentQueue.length === 0) return;
-  // 3초 이상 재생되었으면 현재 곡 처음으로 되감기
   if (audioElement.currentTime > 3) {
     audioElement.currentTime = 0;
     return;
@@ -381,5 +364,4 @@ progressBar.addEventListener('input', (e) => {
   }
 });
 
-// 초기 실행 시 곡 목록 렌더링
 renderSongList();

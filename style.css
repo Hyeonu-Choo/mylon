@@ -125,7 +125,6 @@ header {
   margin-bottom: 12px;
 }
 
-/* 하단 플레이어 바 */
 .player-bar {
   position: fixed;
   bottom: 0;
@@ -156,7 +155,6 @@ button {
   padding: 6px;
 }
 
-/* 셔플 및 반복 모드 상태 표시 */
 .mode-btn {
   font-size: 18px;
   opacity: 0.35;
